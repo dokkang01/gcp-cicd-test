@@ -1,0 +1,74 @@
+name: WIF Smoke Test (No Code)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Auth to GCP (OIDC via WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Verify GCP API access
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== gcloud auth list =="
+          gcloud auth list
+
+          echo "== project id check =="
+          gcloud projects describe "${GCP_PROJECT_ID}" --format="value(projectId)"
+
+          echo "== compute instance exists check =="
+          gcloud compute instances describe "${GCE_INSTANCE_NAME}" \
+            --zone "${GCP_ZONE}" \
+            --format="value(name)"
+
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCE_INSTANCE_NAME: ${{ secrets.GCE_INSTANCE_NAME }}
+          GCP_ZONE: ${{ secrets.GCP_ZONE }}
+
+      - name: SSH into VM (public IP) and run simple commands
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # gcloud compute ssh uses OS Login / metadata-based keys.
+          # This does NOT require storing an SSH private key in GitHub secrets.
+          gcloud compute ssh "${GCE_INSTANCE_NAME}" \
+            --zone "${GCP_ZONE}" \
+            --quiet \
+            --command "echo 'SSH_OK'; whoami; hostname; uname -a"
+
+        env:
+          GCE_INSTANCE_NAME: ${{ secrets.GCE_INSTANCE_NAME }}
+          GCP_ZONE: ${{ secrets.GCP_ZONE }}
+
+      # ---- Optional: Redis auth test (enable if redis-cli exists on VM) ----
+      # - name: Redis ping test on VM
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+      #     gcloud compute ssh "${GCE_INSTANCE_NAME}" \
+      #       --zone "${GCP_ZONE}" \
+      #       --quiet \
+      #       --command "redis-cli -a '${REDIS_PASSWORD}' ping"
+      #   env:
+      #     GCE_INSTANCE_NAME: ${{ secrets.GCE_INSTANCE_NAME }}
+      #     GCP_ZONE: ${{ secrets.GCP_ZONE }}
+      #     REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
